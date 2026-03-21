@@ -96,7 +96,7 @@ git commit -m "chore: inicializa projeto Spring Boot com Kotlin e dependências 
      postgres:
        image: postgres:16
        environment:
-         POSTGRES_DB: gestor_markdowns
+         POSTGRES_DB: postgres
          POSTGRES_USER: gestor_user
          POSTGRES_PASSWORD: gestor_pass
        ports:
@@ -108,6 +108,12 @@ git commit -m "chore: inicializa projeto Spring Boot com Kotlin e dependências 
      pgdata:
    ```
    Rode: `docker compose up -d`
+
+    Comandos úteis para gerenciar:
+  - docker compose ps — ver containers rodando
+  - docker compose stop — parar
+  - docker compose down — parar e remover containers
+  - docker compose down -v — parar, remover containers e os volumes (apaga dados do banco)
 
    **Opção B — PostgreSQL local:**
    ```bash
@@ -135,7 +141,7 @@ git commit -m "chore: inicializa projeto Spring Boot com Kotlin e dependências 
 - **`ddl-auto=update`**: o Hibernate analisa suas entidades e atualiza o schema do banco automaticamente. Perfeito para desenvolvimento. Em produção, usaríamos **migrations** (Flyway/Liquibase)
 - **`show-sql=true`**: imprime as queries SQL no console — excelente para aprender o que o JPA gera por baixo
 
-3. **Teste a conexão**: rode `./mvnw spring-boot:run` e verifique se a aplicação sobe sem erros de conexão
+3. **Teste a conexão**: rode `source .env && export POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD && ./mvnw spring-boot:run` e verifique se a aplicação sobe sem erros de conexão
 
 ### Commit sugerido
 ```

@@ -1,0 +1,27 @@
+# Define os servicos (containers) que o Docker Compose vai gerenciar
+services:
+  # Nome do servico
+  postgres:
+    # Imagem oficial do PostgreSQL versao 16 do Docker Hub
+    image: postgres:16
+    # Variaveis de ambiente passadas para o container
+    environment:
+      # Nome do banco de dados criado automaticamente na primeira inicializacao
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Usuario admin do banco
+      POSTGRES_USER: ${POSTGRES_USER}
+      # Senha do usuario admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Mapeamento de portas (host:container)
+    ports:
+      # Porta 5432 da maquina local mapeada para a porta 5432 do container
+      - "5432:5432"
+    # Volumes montados no container para persistencia de dados
+    volumes:
+      # Monta o volume 'pgdata' no diretorio de dados do PostgreSQL
+      - pgdata:/var/lib/postgresql/data
+
+# Declaracao de volumes nomeados gerenciados pelo Docker
+volumes:
+  # Volume para persistir os dados do banco mesmo se o container for destruido
+  pgdata:
