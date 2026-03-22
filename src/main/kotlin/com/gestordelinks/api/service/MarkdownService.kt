@@ -49,7 +49,6 @@ class MarkdownService(
     //       return markdownRepository.findAll().map { MarkdownResponse.from(it) }
     //   }
     fun findAll(): List<MarkdownResponse> = markdownRepository.findAll().map { MarkdownResponse.from(it) }
-
     // --- BUSCAR POR ID ---
     // Recebe o id (Long) e retorna um MarkdownResponse
     fun findById(id: Long): MarkdownResponse {
