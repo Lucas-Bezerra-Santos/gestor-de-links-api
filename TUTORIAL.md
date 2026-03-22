@@ -716,6 +716,725 @@ git commit -m "test: adiciona testes de integração para MarkdownController"
 
 ---
 
+---
+
+# Parte 2: Categorias de Markdown
+
+## Contexto
+
+Agora que o CRUD básico está funcionando, vamos evoluir a API adicionando **categorias** aos markdowns. Cada markdown poderá ter uma categoria opcional (ex: BACK, FRONT, INFRA...), e categorias são dados fixos pré-populados no banco. Isso vai te ensinar conceitos novos: **migrations com Flyway**, **relacionamentos entre entidades** e **dados seed**.
+
+---
+
+## Etapa 11: Introdução ao Flyway e Migrations
+
+### O que você vai aprender
+- O que são migrations e por que são essenciais em projetos reais
+- Como o Flyway versiona o schema do banco de dados
+- Por que trocar `ddl-auto=update` por migrations controladas
+- Diferença entre Flyway e o DDL auto do Hibernate
+
+### Passo a passo
+
+1. **Adicione as dependências do Flyway** no `pom.xml`, dentro do bloco `<dependencies>`:
+
+   ```xml
+   <dependency>
+       <groupId>org.flywaydb</groupId>
+       <artifactId>flyway-core</artifactId>
+   </dependency>
+   <dependency>
+       <groupId>org.flywaydb</groupId>
+       <artifactId>flyway-database-postgresql</artifactId>
+   </dependency>
+   ```
+
+   > O `flyway-core` é o motor de migrations. O `flyway-database-postgresql` é o módulo específico para PostgreSQL. A versão é gerenciada pelo Spring Boot (BOM), então não precisa declarar `<version>`.
+
+2. **Altere o `application.properties`** — troque o `ddl-auto` de `update` para `validate`:
+
+   ```properties
+   # JPA / Hibernate
+   spring.jpa.hibernate.ddl-auto=validate
+   spring.jpa.show-sql=true
+   spring.jpa.properties.hibernate.format_sql=true
+   spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+   ```
+
+   > Com `validate`, o Hibernate apenas **verifica** se as entidades batem com o schema do banco, mas **não altera** nada. Quem gerencia o schema agora é o Flyway.
+
+3. **Crie o diretório de migrations**: `src/main/resources/db/migration/`
+
+   > O Flyway procura migrations neste caminho por padrão. A convenção de nomes é: `V{número}__{descrição}.sql` (note os dois underscores `__`).
+
+4. **Crie a primeira migration** `V1__create_markdowns_table.sql`:
+
+   ```sql
+   CREATE TABLE IF NOT EXISTS markdowns (
+       id BIGSERIAL PRIMARY KEY,
+       name VARCHAR(255) NOT NULL,
+       description VARCHAR(500) NOT NULL,
+       content TEXT NOT NULL,
+       created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+   );
+   ```
+
+   > Essa migration recria a tabela `markdowns` que o Hibernate criava automaticamente. O `IF NOT EXISTS` garante que, se a tabela já existir no seu banco de desenvolvimento, a migration não vai falhar.
+
+5. **Importante — se você já tem dados no banco**: como o Flyway está sendo adicionado a um projeto existente, ele precisa saber que o schema atual já está no estado da V1. Adicione essa config no `application.properties`:
+
+   ```properties
+   # Flyway
+   spring.flyway.baseline-on-migrate=true
+   ```
+
+   > `baseline-on-migrate=true` diz ao Flyway: "se o banco já existe mas nunca teve migrations, considere o estado atual como a baseline (V1)". Sem isso, ele tentaria rodar V1 em um banco que já tem a tabela e falharia.
+
+6. **Rode a aplicação** para verificar que o Flyway executa a migration:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+   Você deve ver no console algo como:
+   ```
+   Flyway Community Edition ...
+   Successfully validated 1 migration
+   Successfully applied 1 migration to schema "public"
+   ```
+
+### Conceitos-chave
+
+- **Migration**: um script SQL versionado que altera o schema do banco. Pense como um "commit" do banco de dados — cada migration é uma mudança incremental e irreversível (em produção)
+- **Flyway**: ferramenta que gerencia a execução de migrations na ordem correta. Ele mantém uma tabela `flyway_schema_history` no banco para rastrear quais migrations já foram aplicadas
+- **`V1__`**: o prefixo `V` + número da versão + `__` (dois underscores) é a convenção obrigatória do Flyway. Ele executa em ordem numérica crescente
+- **Por que trocar DDL auto por Flyway?**: `ddl-auto=update` é conveniente para prototipar, mas perigoso em produção:
+  - Não tem rollback
+  - Não versiona mudanças
+  - Pode apagar colunas/dados silenciosamente
+  - Impossível reproduzir o schema exato em outro ambiente
+  - Flyway resolve tudo isso — é o padrão da indústria
+- **Comparando com frontend**: migrations são como arquivos de migração do Prisma ou Drizzle — mudanças incrementais e rastreáveis no schema
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: adiciona Flyway e cria migration inicial da tabela markdowns"
+```
+
+---
+
+## Etapa 12: Criação da Tabela Categories e Relacionamento via Migrations
+
+### O que você vai aprender
+- Como criar tabelas relacionadas com chaves estrangeiras via migrations
+- Como popular dados fixos (seed) no banco via migration
+- O conceito de dados de referência (lookup tables)
+
+### Passo a passo
+
+1. **Crie a migration** `V2__create_categories_table.sql`:
+
+   ```sql
+   CREATE TABLE categories (
+       id BIGSERIAL PRIMARY KEY,
+       name VARCHAR(100) NOT NULL UNIQUE
+   );
+   ```
+
+   > Tabela simples com `id` auto-incrementado e `name` único. O `UNIQUE` garante que não haverá categorias duplicadas.
+
+2. **Crie a migration** `V3__add_category_to_markdowns.sql`:
+
+   ```sql
+   ALTER TABLE markdowns
+       ADD COLUMN category_id BIGINT,
+       ADD CONSTRAINT fk_markdowns_category
+           FOREIGN KEY (category_id) REFERENCES categories(id);
+   ```
+
+   > Adiciona a coluna `category_id` na tabela `markdowns`. Como a categoria é **opcional**, a coluna é `BIGINT` sem `NOT NULL` (permite `NULL`). A constraint `FOREIGN KEY` garante integridade referencial — não dá para inserir um `category_id` que não existe na tabela `categories`.
+
+3. **Crie a migration** `V4__seed_categories.sql`:
+
+   ```sql
+   INSERT INTO categories (name) VALUES
+       ('BACK'),
+       ('FRONT'),
+       ('BFF'),
+       ('INFRA'),
+       ('PERFORMANCE'),
+       ('QUALIDADE'),
+       ('DIA_A_DIA');
+   ```
+
+   > Dados seed — categorias fixas que a aplicação precisa para funcionar. Usar uma migration para seed garante que qualquer novo ambiente já terá esses dados.
+
+4. **Rode a aplicação** e verifique no console que as 3 novas migrations foram aplicadas:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+
+   A aplicação vai falhar! Isso é esperado — o Hibernate está com `ddl-auto=validate` e a entidade `Markdown` ainda não tem o campo `category_id`. Vamos resolver na próxima etapa.
+
+### Conceitos-chave
+
+- **Chave estrangeira (Foreign Key)**: uma constraint que liga uma coluna de uma tabela à chave primária de outra. Garante que `category_id` em `markdowns` sempre aponte para um `id` válido em `categories`
+- **Dados seed**: dados essenciais que a aplicação precisa para funcionar. Diferente de dados de usuário — são dados de referência/configuração
+- **`BIGSERIAL`**: tipo do PostgreSQL que cria um `BIGINT` com auto-incremento. Equivalente ao `GenerationType.IDENTITY` do JPA
+- **Nullable FK**: como `category_id` pode ser `NULL`, o markdown pode existir sem categoria — é um relacionamento **opcional** (0..1 para N)
+- **Migrations incrementais**: note que cada migration faz **uma** coisa — criar tabela, adicionar coluna, popular dados. Isso facilita debugging e rollback
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: cria migrations para tabela categories, FK em markdowns e dados seed"
+```
+
+---
+
+## Etapa 13: Criação da Entidade Category e Atualização do Markdown
+
+### O que você vai aprender
+- Como criar uma nova entidade JPA
+- Relacionamento `@ManyToOne` (muitos-para-um) entre entidades
+- Como mapear relacionamentos opcionais no Kotlin/JPA
+
+### Passo a passo
+
+1. **Crie o arquivo** `Category.kt` em `src/main/kotlin/com/gestordelinks/api/model/`:
+
+   ```kotlin
+   package com.gestordelinks.api.model
+
+   import jakarta.persistence.*
+
+   @Entity
+   @Table(name = "categories")
+   class Category(
+       @Id
+       @GeneratedValue(strategy = GenerationType.IDENTITY)
+       val id: Long = 0,
+
+       @Column(nullable = false, unique = true, length = 100)
+       val name: String
+   )
+   ```
+
+   > Entidade simples — apenas `id` e `name`. Ambos são `val` (imutáveis) pois categorias são dados fixos e não devem ser editados pela API.
+
+2. **Crie o arquivo** `CategoryRepository.kt` em `src/main/kotlin/com/gestordelinks/api/repository/`:
+
+   ```kotlin
+   package com.gestordelinks.api.repository
+
+   import com.gestordelinks.api.model.Category
+   import org.springframework.data.jpa.repository.JpaRepository
+
+   interface CategoryRepository : JpaRepository<Category, Long>
+   ```
+
+3. **Atualize a entidade** `Markdown.kt` adicionando o relacionamento com Category:
+
+   ```kotlin
+   package com.gestordelinks.api.model
+
+   import jakarta.persistence.*
+   import java.time.LocalDateTime
+
+   @Entity
+   @Table(name = "markdowns")
+   class Markdown(
+       @Id
+       @GeneratedValue(strategy = GenerationType.IDENTITY)
+       val id: Long = 0,
+
+       @Column(nullable = false, length = 255)
+       var name: String,
+
+       @Column(nullable = false, length = 500)
+       var description: String,
+
+       @Column(nullable = false, columnDefinition = "TEXT")
+       var content: String,
+
+       @ManyToOne(fetch = FetchType.LAZY)
+       @JoinColumn(name = "category_id")
+       var category: Category? = null,
+
+       @Column(name = "created_at", nullable = false, updatable = false)
+       val createdAt: LocalDateTime = LocalDateTime.now(),
+
+       @Column(name = "updated_at", nullable = false)
+       var updatedAt: LocalDateTime = LocalDateTime.now()
+   )
+   ```
+
+   > O campo `category` foi adicionado entre `content` e `createdAt`.
+
+4. **Rode a aplicação** — agora o Hibernate deve validar com sucesso que as entidades batem com o schema do banco:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+
+### Conceitos-chave
+
+- **`@ManyToOne`**: define um relacionamento onde **muitos** markdowns podem ter **uma** categoria. É o lado "muitos" da relação N:1
+- **`fetch = FetchType.LAZY`**: a categoria só é carregada do banco quando você realmente acessa `markdown.category`. Sem isso, o JPA carregaria a categoria junto com cada markdown (EAGER), gerando queries desnecessárias. Regra de ouro: **sempre use LAZY** em `@ManyToOne`
+- **`@JoinColumn(name = "category_id")`**: diz ao JPA qual coluna no banco é a FK. Deve bater com o nome que usamos na migration
+- **`Category? = null`**: o `?` torna o tipo nullable em Kotlin e o `= null` define o valor padrão. Isso reflete que a FK é nullable no banco — a categoria é opcional
+- **`var` no category**: mutável porque o markdown pode mudar de categoria via update
+- **Comparando com frontend**: `@ManyToOne` é como uma referência entre entidades — similar a um `userId` em um objeto `Post` que referencia a tabela `users`. A diferença é que o JPA resolve essa referência automaticamente, carregando o objeto inteiro
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: cria entidade Category e adiciona relacionamento ManyToOne no Markdown"
+```
+
+---
+
+## Etapa 14: Atualização dos DTOs do Markdown
+
+### O que você vai aprender
+- Como representar relacionamentos nos DTOs
+- Validação de campos opcionais
+- Por que expor IDs e nomes (não objetos inteiros) nos DTOs
+
+### Passo a passo
+
+1. **Atualize o `MarkdownRequest.kt`** adicionando o campo `categoryId` opcional:
+
+   ```kotlin
+   package com.gestordelinks.api.dto
+
+   import jakarta.validation.constraints.NotBlank
+   import jakarta.validation.constraints.Size
+
+   data class MarkdownRequest(
+       @field:NotBlank(message = "Nome é obrigatório")
+       @field:Size(max = 255, message = "Nome deve ter no máximo 255 caracteres")
+       val name: String,
+
+       @field:NotBlank(message = "Descrição é obrigatória")
+       @field:Size(max = 500, message = "Descrição deve ter no máximo 500 caracteres")
+       val description: String,
+
+       @field:NotBlank(message = "Conteúdo é obrigatório")
+       val content: String,
+
+       val categoryId: Long? = null
+   )
+   ```
+
+   > `categoryId: Long? = null` — campo opcional. Se o cliente não enviar, o valor padrão é `null` (sem categoria). O `?` indica tipo nullable em Kotlin.
+
+2. **Atualize o `MarkdownResponse.kt`** adicionando a categoria como objeto aninhado:
+
+   ```kotlin
+   package com.gestordelinks.api.dto
+
+   import com.gestordelinks.api.model.Markdown
+   import java.time.LocalDateTime
+
+   data class MarkdownResponse(
+       val id: Long,
+       val name: String,
+       val description: String,
+       val content: String,
+       val category: CategoryResponse?,
+       val createdAt: LocalDateTime,
+       val updatedAt: LocalDateTime
+   ) {
+       companion object {
+           fun from(markdown: Markdown) = MarkdownResponse(
+               id = markdown.id,
+               name = markdown.name,
+               description = markdown.description,
+               content = markdown.content,
+               category = markdown.category?.let { CategoryResponse.from(it) },
+               createdAt = markdown.createdAt,
+               updatedAt = markdown.updatedAt
+           )
+       }
+   }
+   ```
+
+   > Note o uso do **`?.let { ... }`** do Kotlin: se `markdown.category` for `null`, retorna `null` direto. Se existir, converte para `CategoryResponse` usando o factory method que já criamos. Isso significa que o `CategoryResponse` precisa ser criado **antes** deste passo (Etapa 15), ou você pode adiantar a criação dele aqui.
+
+   > **Importante**: como o `MarkdownResponse` agora depende do `CategoryResponse`, a Etapa 15 (criação do `CategoryResponse`) deve ser feita **antes** desta etapa, ou você pode criar o `CategoryResponse.kt` agora e reutilizá-lo na Etapa 15.
+
+### Conceitos-chave
+
+- **Objeto aninhado no response**: em vez de campos planos (`categoryId`, `categoryName`), retornamos `category: { id, name }` como objeto. Isso é mais expressivo e facilita a tipagem no frontend — o cliente recebe `category: CategoryResponse | null`
+- **Reutilização de DTOs**: o `CategoryResponse` é usado tanto no endpoint `/api/categories` quanto dentro do `MarkdownResponse`. Um DTO bem feito serve para múltiplos contextos
+- **`?.let { ... }`**: padrão Kotlin idiomático para transformar valores nullable. Se `category` for `null`, o resultado é `null`. Se existir, aplica a transformação dentro do `let`
+- **`Long? = null`**: em Kotlin, `Long` não pode ser `null`, mas `Long?` pode. O `= null` como valor padrão significa que o campo é opcional no JSON — se omitido, o Jackson (deserializador) usa `null`
+- **Comparando com frontend**: é como retornar `category: { id: number, name: string } | null` em TypeScript — o frontend recebe um objeto tipado ou `null`
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: adiciona categoryId opcional nos DTOs de Markdown"
+```
+
+---
+
+## Etapa 15: Criação do Endpoint de Categories
+
+### O que você vai aprender
+- Como criar uma nova feature completa (DTO + Service + Controller)
+- Endpoint de leitura simples para dados de referência
+- Reutilização de padrões já aprendidos
+
+### Passo a passo
+
+1. **Crie o `CategoryResponse.kt`** em `src/main/kotlin/com/gestordelinks/api/dto/`:
+
+   ```kotlin
+   package com.gestordelinks.api.dto
+
+   import com.gestordelinks.api.model.Category
+
+   data class CategoryResponse(
+       val id: Long,
+       val name: String
+   ) {
+       companion object {
+           fun from(category: Category) = CategoryResponse(
+               id = category.id,
+               name = category.name
+           )
+       }
+   }
+   ```
+
+2. **Crie o `CategoryService.kt`** em `src/main/kotlin/com/gestordelinks/api/service/`:
+
+   ```kotlin
+   package com.gestordelinks.api.service
+
+   import com.gestordelinks.api.dto.CategoryResponse
+   import com.gestordelinks.api.repository.CategoryRepository
+   import org.springframework.data.domain.Sort
+   import org.springframework.stereotype.Service
+
+   @Service
+   class CategoryService(
+       private val categoryRepository: CategoryRepository
+   ) {
+
+       fun findAll(): List<CategoryResponse> =
+           categoryRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+               .map { CategoryResponse.from(it) }
+   }
+   ```
+
+   > Service simples com apenas um método — categorias são dados de leitura, não precisam de CRUD completo.
+
+3. **Crie o `CategoryController.kt`** em `src/main/kotlin/com/gestordelinks/api/controller/`:
+
+   ```kotlin
+   package com.gestordelinks.api.controller
+
+   import com.gestordelinks.api.dto.CategoryResponse
+   import com.gestordelinks.api.service.CategoryService
+   import org.springframework.http.ResponseEntity
+   import org.springframework.web.bind.annotation.GetMapping
+   import org.springframework.web.bind.annotation.RequestMapping
+   import org.springframework.web.bind.annotation.RestController
+
+   @RestController
+   @RequestMapping("/api/categories")
+   class CategoryController(
+       private val categoryService: CategoryService
+   ) {
+
+       @GetMapping
+       fun findAll(): ResponseEntity<List<CategoryResponse>> =
+           ResponseEntity.ok(categoryService.findAll())
+   }
+   ```
+
+### Conceitos-chave
+
+- **Feature completa em 3 arquivos**: `CategoryResponse` (DTO) + `CategoryService` (lógica) + `CategoryController` (HTTP). Mesmo padrão do Markdown, mas mais enxuto pois só precisamos de leitura
+- **Dados de referência (lookup data)**: categorias são dados fixos que servem de referência para outros recursos. O padrão comum é expor um endpoint GET para que o frontend consuma e popule dropdowns/selects
+- **Sem POST/PUT/DELETE**: como categorias são gerenciadas via migrations (dados seed), não precisam de endpoints de escrita. Se no futuro for necessário gerenciar categorias dinamicamente, é fácil adicionar
+
+### Novo endpoint
+
+| Método | URL                | Ação               | Status de sucesso |
+|--------|--------------------|---------------------|-------------------|
+| GET    | `/api/categories`  | Listar categorias   | 200 OK            |
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: cria endpoint GET /api/categories com DTO, service e controller"
+```
+
+---
+
+## Etapa 16: Atualização do MarkdownService para Categorias
+
+### O que você vai aprender
+- Como resolver relacionamentos no service
+- Validação de referências entre entidades
+- Tratamento de campos opcionais na lógica de negócio
+
+### Passo a passo
+
+1. **Atualize o `MarkdownService.kt`** para injetar o `CategoryRepository` e tratar a categoria no create/update:
+
+   ```kotlin
+   package com.gestordelinks.api.service
+
+   import com.gestordelinks.api.dto.MarkdownRequest
+   import com.gestordelinks.api.dto.MarkdownResponse
+   import com.gestordelinks.api.model.Markdown
+   import com.gestordelinks.api.repository.CategoryRepository
+   import com.gestordelinks.api.repository.MarkdownRepository
+   import org.springframework.data.domain.Sort
+   import org.springframework.stereotype.Service
+   import java.time.LocalDateTime
+
+   @Service
+   class MarkdownService(
+       private val markdownRepository: MarkdownRepository,
+       private val categoryRepository: CategoryRepository
+   ) {
+
+       fun findAll(): List<MarkdownResponse> =
+           markdownRepository.findAll(Sort.by(Sort.Direction.ASC, "name"))
+               .map { MarkdownResponse.from(it) }
+
+       fun findById(id: Long): MarkdownResponse {
+           val markdown = markdownRepository.findById(id)
+               .orElseThrow { NoSuchElementException("Markdown com id $id nao encontrado") }
+           return MarkdownResponse.from(markdown)
+       }
+
+       fun create(request: MarkdownRequest): MarkdownResponse {
+           val category = request.categoryId?.let {
+               categoryRepository.findById(it)
+                   .orElseThrow { NoSuchElementException("Categoria com id $it não encontrada") }
+           }
+
+           val markdown = Markdown(
+               name = request.name,
+               description = request.description,
+               content = request.content,
+               category = category
+           )
+           return MarkdownResponse.from(markdownRepository.save(markdown))
+       }
+
+       fun update(id: Long, request: MarkdownRequest): MarkdownResponse {
+           val markdown = markdownRepository.findById(id)
+               .orElseThrow { NoSuchElementException("Markdown com id $id não encontrado") }
+
+           val category = request.categoryId?.let {
+               categoryRepository.findById(it)
+                   .orElseThrow { NoSuchElementException("Categoria com id $it não encontrada") }
+           }
+
+           markdown.name = request.name
+           markdown.description = request.description
+           markdown.content = request.content
+           markdown.category = category
+           markdown.updatedAt = LocalDateTime.now()
+
+           return MarkdownResponse.from(markdownRepository.save(markdown))
+       }
+
+       fun delete(id: Long) {
+           if (!markdownRepository.existsById(id)) {
+               throw NoSuchElementException("Markdown com id $id não encontrado")
+           }
+           markdownRepository.deleteById(id)
+       }
+   }
+   ```
+
+### Conceitos-chave
+
+- **Injeção de múltiplos repositories**: o `MarkdownService` agora recebe dois repositories no construtor. O Spring injeta ambos automaticamente — basta adicionar no construtor
+- **`request.categoryId?.let { ... }`**: padrão Kotlin idiomático. Se `categoryId` não for `null`, executa o bloco `let` (busca a categoria). Se for `null`, retorna `null` (sem categoria). É mais elegante que `if (categoryId != null) { ... }`
+- **Validação de referência**: ao criar/atualizar, verificamos se o `categoryId` realmente existe na tabela `categories`. Se não existir, lançamos `NoSuchElementException` (que o `ApiExceptionHandler` já trata como 404). Isso evita erros de FK no banco
+- **`category = category`**: ao passar `null`, o markdown fica sem categoria. Ao passar uma `Category`, cria o vínculo. O JPA cuida de salvar o `category_id` correto na coluna FK
+- **Comparando com frontend**: é como resolver um `userId` em uma chamada — antes de criar um `Post` com `userId`, você verifica se o usuário existe. Mesma lógica, mas no backend
+
+### Commit sugerido
+```
+git add .
+git commit -m "feat: atualiza MarkdownService para suportar categoria opcional"
+```
+
+---
+
+## Etapa 17: Testando a Funcionalidade de Categorias
+
+### O que você vai aprender
+- Como testar a nova funcionalidade end-to-end
+- Verificar que as migrations rodaram corretamente
+- Testar relacionamentos opcionais
+
+### Passo a passo
+
+1. **Suba a aplicação**:
+   ```bash
+   ./mvnw spring-boot:run
+   ```
+
+2. **Teste o endpoint de categorias**:
+
+   ```bash
+   # Listar todas as categorias
+   curl http://localhost:8080/api/categories
+   ```
+
+   Resposta esperada:
+   ```json
+   [
+     {"id": 1, "name": "BACK"},
+     {"id": 2, "name": "BFF"},
+     {"id": 3, "name": "DIA_A_DIA"},
+     {"id": 4, "name": "FRONT"},
+     {"id": 5, "name": "INFRA"},
+     {"id": 6, "name": "PERFORMANCE"},
+     {"id": 7, "name": "QUALIDADE"}
+   ]
+   ```
+
+3. **Teste criar markdown SEM categoria** (compatibilidade):
+
+   ```bash
+   curl -X POST http://localhost:8080/api/markdowns \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Sem categoria","description":"Markdown sem categoria","content":"# Teste"}'
+   ```
+
+   Resposta esperada: `category` deve ser `null`.
+
+4. **Teste criar markdown COM categoria**:
+
+   ```bash
+   curl -X POST http://localhost:8080/api/markdowns \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Guia de Deploy","description":"Deploy na AWS","content":"# Deploy","categoryId":5}'
+   ```
+
+   Resposta esperada: `category: {"id": 5, "name": "INFRA"}`.
+
+5. **Teste atualizar categoria de um markdown existente**:
+
+   ```bash
+   curl -X PUT http://localhost:8080/api/markdowns/1 \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Sem categoria","description":"Agora com categoria","content":"# Teste","categoryId":1}'
+   ```
+
+6. **Teste remover categoria** (enviar sem categoryId):
+
+   ```bash
+   curl -X PUT http://localhost:8080/api/markdowns/1 \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Sem categoria","description":"Sem categoria de novo","content":"# Teste"}'
+   ```
+
+7. **Teste categoria inválida** (deve retornar 404):
+
+   ```bash
+   curl -X POST http://localhost:8080/api/markdowns \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Teste","description":"Teste","content":"# Teste","categoryId":999}'
+   ```
+
+8. **Atualize o teste de integração** em `MarkdownControllerTest.kt` — adicione a dependência H2 do Flyway no `pom.xml` para testes:
+
+   ```xml
+   <dependency>
+       <groupId>org.flywaydb</groupId>
+       <artifactId>flyway-database-h2</artifactId>
+       <scope>test</scope>
+   </dependency>
+   ```
+
+   E adicione novos testes no `MarkdownControllerTest.kt`:
+
+   ```kotlin
+   @Test
+   fun `deve listar categorias`() {
+       val response = restTemplate.getForEntity(
+           "/api/categories", Array<Map<String, Any>>::class.java
+       )
+
+       assertEquals(HttpStatus.OK, response.statusCode)
+       assertTrue(response.body!!.isNotEmpty())
+   }
+
+   @Test
+   fun `deve criar markdown com categoria`() {
+       // Primeiro, busca as categorias para pegar um ID válido
+       val categories = restTemplate.getForEntity(
+           "/api/categories", Array<Map<String, Any>>::class.java
+       )
+       val categoryId = (categories.body!!.first()["id"] as Number).toLong()
+
+       val request = mapOf(
+           "name" to "Com Categoria",
+           "description" to "Teste com categoria",
+           "content" to "# Conteúdo",
+           "categoryId" to categoryId
+       )
+
+       val response = restTemplate.postForEntity(
+           "/api/markdowns", request, MarkdownResponse::class.java
+       )
+
+       assertEquals(HttpStatus.CREATED, response.statusCode)
+       assertNotNull(response.body?.category)
+       assertNotNull(response.body?.category?.id)
+       assertNotNull(response.body?.category?.name)
+   }
+
+   @Test
+   fun `deve criar markdown sem categoria`() {
+       val request = MarkdownRequest(
+           name = "Sem Categoria",
+           description = "Teste sem categoria",
+           content = "# Conteúdo"
+       )
+
+       val response = restTemplate.postForEntity(
+           "/api/markdowns", request, MarkdownResponse::class.java
+       )
+
+       assertEquals(HttpStatus.CREATED, response.statusCode)
+       assertNull(response.body?.category)
+   }
+   ```
+
+9. **Rode os testes**:
+   ```bash
+   ./mvnw test
+   ```
+
+### Conceitos-chave
+
+- **Testes de integração com Flyway**: quando a aplicação sobe para testes, o Flyway executa as mesmas migrations no H2. Isso garante que o schema de teste é idêntico ao de desenvolvimento
+- **`flyway-database-h2`**: módulo do Flyway específico para H2, necessário para rodar as migrations no banco in-memory dos testes
+- **Teste de compatibilidade**: é essencial testar que markdowns **sem** categoria continuam funcionando. Isso valida que a mudança é backwards-compatible
+- **Teste de validação**: testar `categoryId: 999` confirma que a API retorna 404 para categorias inválidas, não um erro 500
+
+### Commit sugerido
+```
+git add .
+git commit -m "test: adiciona testes de integração para funcionalidade de categorias"
+```
+
+---
+
 ## Resumo da Arquitetura Final
 
 ```
@@ -727,7 +1446,14 @@ Service (@Service)               ← lógica de negócio, conversões DTO ↔ En
      ↓
 Repository (JpaRepository)       ← acesso ao banco (queries geradas automaticamente)
      ↓
+Flyway (migrations)              ← gerencia schema e dados seed
+     ↓
 PostgreSQL                       ← persistência dos dados
+```
+
+```
+markdowns (N) ──── category_id (FK, nullable) ────→ (1) categories
+"Muitos markdowns podem ter uma categoria, categoria é opcional"
 ```
 
 ## Checklist de Verificação Final
@@ -740,6 +1466,11 @@ PostgreSQL                       ← persistência dos dados
 - [ ] DELETE `/api/markdowns/{id}` retorna 204
 - [ ] POST com body inválido retorna 400 com erros de validação
 - [ ] GET com ID inexistente retorna 404
+- [ ] GET `/api/categories` retorna as 7 categorias
+- [ ] POST `/api/markdowns` com `categoryId` válido associa a categoria
+- [ ] POST `/api/markdowns` sem `categoryId` cria sem categoria (null)
+- [ ] POST `/api/markdowns` com `categoryId` inválido retorna 404
+- [ ] PUT `/api/markdowns/{id}` permite trocar ou remover categoria
 - [ ] `./mvnw test` passa todos os testes
 
 ## Ordem dos Commits
@@ -753,3 +1484,10 @@ PostgreSQL                       ← persistência dos dados
 7. `feat: cria controller REST com endpoints CRUD de Markdown`
 8. `feat: adiciona tratamento global de erros com @RestControllerAdvice`
 9. `test: adiciona testes de integração para MarkdownController`
+10. `feat: adiciona Flyway e cria migration inicial da tabela markdowns`
+11. `feat: cria migrations para tabela categories, FK em markdowns e dados seed`
+12. `feat: cria entidade Category e adiciona relacionamento ManyToOne no Markdown`
+13. `feat: adiciona categoryId opcional nos DTOs de Markdown`
+14. `feat: cria endpoint GET /api/categories com DTO, service e controller`
+15. `feat: atualiza MarkdownService para suportar categoria opcional`
+16. `test: adiciona testes de integração para funcionalidade de categorias`
