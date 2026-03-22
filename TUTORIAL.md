@@ -732,6 +732,7 @@ Agora que o CRUD básico está funcionando, vamos evoluir a API adicionando **ca
 - O que são migrations e por que são essenciais em projetos reais
 - Como o Flyway versiona o schema do banco de dados
 - Por que trocar `ddl-auto=update` por migrations controladas
+- Como configurar o Flyway manualmente no Spring Boot 4.x
 - Diferença entre Flyway e o DDL auto do Hibernate
 
 ### Passo a passo
@@ -791,7 +792,46 @@ Agora que o CRUD básico está funcionando, vamos evoluir a API adicionando **ca
 
    > `baseline-on-migrate=true` diz ao Flyway: "se o banco já existe mas nunca teve migrations, considere o estado atual como a baseline (V1)". Sem isso, ele tentaria rodar V1 em um banco que já tem a tabela e falharia.
 
-6. **Rode a aplicação** para verificar que o Flyway executa a migration:
+6. **Crie a configuração manual do Flyway** — no Spring Boot 4.x, a auto-configuração do Flyway foi removida. É necessário criar um `@Configuration` bean manualmente.
+
+   Crie o pacote `config` em `src/main/kotlin/com/gestordelinks/api/config/` e o arquivo `FlywayConfig.kt`:
+
+   ```kotlin
+   package com.gestordelinks.api.config
+
+   import org.flywaydb.core.Flyway
+   import org.springframework.beans.factory.annotation.Value
+   import org.springframework.context.annotation.Bean
+   import org.springframework.context.annotation.Configuration
+   import javax.sql.DataSource
+
+   @Configuration
+   class FlywayConfig {
+
+       @Bean(initMethod = "migrate")
+       fun flyway(
+           dataSource: DataSource,
+           @Value("\${spring.flyway.baseline-on-migrate:false}") baselineOnMigrate: Boolean
+       ): Flyway {
+           return Flyway.configure()
+               .dataSource(dataSource)
+               .baselineOnMigrate(baselineOnMigrate)
+               .locations("classpath:db/migration")
+               .load()
+       }
+   }
+   ```
+
+   > **Por que isso é necessário?** Em versões anteriores do Spring Boot (3.x), bastava adicionar `flyway-core` no classpath e o Spring configurava tudo automaticamente via `FlywayAutoConfiguration`. No Spring Boot 4.x, essa auto-configuração foi removida — precisamos criar o bean manualmente.
+   >
+   > **Como funciona:**
+   > - `@Configuration` marca a classe como uma fonte de beans gerenciados pelo Spring
+   > - `@Bean(initMethod = "migrate")` cria o bean Flyway e chama `.migrate()` automaticamente ao inicializar — executando todas as migrations pendentes
+   > - `dataSource: DataSource` é injetado pelo Spring — reutiliza a mesma conexão de banco configurada no `application.properties`
+   > - `@Value("\${spring.flyway.baseline-on-migrate:false}")` lê a propriedade do `application.properties`. O `:false` é o valor padrão caso a propriedade não exista
+   > - `"classpath:db/migration"` diz ao Flyway onde encontrar os arquivos `.sql`
+
+7. **Rode a aplicação** para verificar que o Flyway executa a migration:
    ```bash
    ./mvnw spring-boot:run
    ```
@@ -813,7 +853,8 @@ Agora que o CRUD básico está funcionando, vamos evoluir a API adicionando **ca
   - Pode apagar colunas/dados silenciosamente
   - Impossível reproduzir o schema exato em outro ambiente
   - Flyway resolve tudo isso — é o padrão da indústria
-- **Comparando com frontend**: migrations são como arquivos de migração do Prisma ou Drizzle — mudanças incrementais e rastreáveis no schema
+- **Configuração manual no Spring Boot 4.x**: diferente do Spring Boot 3.x que auto-configurava o Flyway, no 4.x você precisa criar o bean explicitamente. Isso dá mais controle mas exige que você entenda como o Spring gerencia beans — algo que vale aprender
+- **Comparando com frontend**: migrations são como arquivos de migração do Prisma ou Drizzle — mudanças incrementais e rastreáveis no schema. A config manual do Flyway é como quando você precisa criar um `drizzle.config.ts` — a ferramenta não se configura sozinha
 
 ### Commit sugerido
 ```

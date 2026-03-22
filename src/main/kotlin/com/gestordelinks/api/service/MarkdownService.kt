@@ -8,6 +8,7 @@ import com.gestordelinks.api.dto.MarkdownResponse
 import com.gestordelinks.api.model.Markdown
 // Importa o repository (acesso ao banco de dados)
 import com.gestordelinks.api.repository.MarkdownRepository
+import org.springframework.data.domain.Sort
 // Anotação do Spring que marca esta classe como um bean de serviço
 import org.springframework.stereotype.Service
 // Tipo do Java para data e hora
@@ -48,13 +49,13 @@ class MarkdownService(
     //   fun findAll(): List<MarkdownResponse> {
     //       return markdownRepository.findAll().map { MarkdownResponse.from(it) }
     //   }
-    fun findAll(): List<MarkdownResponse> = markdownRepository.findAll().map { MarkdownResponse.from(it) }
+    fun findAll(): List<MarkdownResponse> = markdownRepository.findAll(Sort.by(Sort.Direction.ASC, "name")).map { MarkdownResponse.from(it) }
     // --- BUSCAR POR ID ---
     // Recebe o id (Long) e retorna um MarkdownResponse
     fun findById(id: Long): MarkdownResponse {
         // findById(id) retorna Optional<Markdown> — um wrapper que pode conter o valor ou estar vazio.
         // Optional é o jeito do Java de lidar com nulidade. Em JS não existe — usaríamos null/undefined.
-        //
+        //no
         // .orElseThrow { ... } → se o Optional está vazio (registro não existe), lança a exceção.
         // É como: const markdown = await db.findById(id) ?? throw new Error("não encontrado")
         //
