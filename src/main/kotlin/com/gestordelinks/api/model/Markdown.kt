@@ -18,6 +18,17 @@ class Markdown(
     // val (imutável) porque o ID nunca deve ser alterado após criação. Valor padrão 0 para novos registros
     val id: Long = 0,
 
+    // Define um relacionamento Muitos-para-Um: vários Markdowns podem pertencer a uma mesma Category
+    // fetch = FetchType.LAZY significa que a Category só será carregada do banco quando for acessada
+    // (evita consultas desnecessárias — sem LAZY, toda vez que buscar um Markdown, o JPA traria a Category junto)
+    @ManyToOne(fetch = FetchType.LAZY)
+    // Configura a coluna de chave estrangeira no banco: "category_id" referencia o ID da tabela categories
+    // O JPA cria automaticamente a FK constraint, garantindo integridade referencial no PostgreSQL
+    @JoinColumn(name = "category_id")
+    // var (mutável) porque a categoria pode ser alterada via PUT. Tipo nullable (Category?) porque
+    // um Markdown pode existir sem categoria — o valor padrão null representa "sem categoria"
+    var category: Category? = null,
+
     // Configura a coluna: não aceita null e limita a 255 caracteres
     @Column(nullable = false, length = 255)
     // var (mutável) porque o nome pode ser atualizado via PUT
