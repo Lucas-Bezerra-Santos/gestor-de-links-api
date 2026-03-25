@@ -6,6 +6,7 @@ import com.gestordelinks.api.dto.MarkdownRequest
 import com.gestordelinks.api.dto.MarkdownResponse
 // Importa a entidade JPA (representação da tabela no banco)
 import com.gestordelinks.api.model.Markdown
+import com.gestordelinks.api.repository.CategoryRepository
 // Importa o repository (acesso ao banco de dados)
 import com.gestordelinks.api.repository.MarkdownRepository
 import org.springframework.data.domain.Sort
@@ -32,7 +33,8 @@ import java.time.LocalDateTime
 //   }
 // "private val" = a propriedade é privada (só acessível dentro da classe) e imutável
 class MarkdownService(
-    private val markdownRepository: MarkdownRepository
+    private val markdownRepository: MarkdownRepository,
+    private val categoryRepository: CategoryRepository
 ) {
 
     // --- LISTAR TODOS ---
@@ -71,13 +73,20 @@ class MarkdownService(
     // --- CRIAR ---
     // Recebe MarkdownRequest (já validado pelo @Valid no Controller) e retorna MarkdownResponse
     fun create(request: MarkdownRequest): MarkdownResponse {
+       val category = request.categoryId?.let {
+           categoryRepository.findById(it).orElseThrow({
+               NoSuchElementException("Categoria com id $it não encontrada")
+           })
+       }
+
         // Cria uma nova instância da entidade Markdown usando named arguments.
         // Em JS seria: new Markdown({ name: request.name, description: request.description, ... })
         // Os campos id, createdAt e updatedAt usam seus valores padrão (definidos na entidade)
         val markdown = Markdown(
             name = request.name,
             description = request.description,
-            content = request.content
+            content = request.content,
+            category = category
         )
 
         // markdownRepository.save(markdown):
@@ -94,11 +103,15 @@ class MarkdownService(
         val markdown = markdownRepository.findById(id)
             .orElseThrow { NoSuchElementException("Markdown com id $id não encontrado") }
 
+        val category = request.categoryId?.let {
+            categoryRepository.findById(it).orElseThrow {NoSuchElementException("Categoria com id $id não encontrada")}
+        }
         // Atualiza os campos mutáveis (var) da entidade.
         // Como a entidade veio do banco via findById, o Hibernate está "rastreando" ela (managed state).
         // Qualquer alteração nos campos será persistida quando chamar save().
         // Em JS seria: Object.assign(markdown, { name: request.name, ... })
         markdown.name = request.name
+        markdown.category = category
         markdown.description = request.description
         markdown.content = request.content
         // Atualiza manualmente o timestamp — marca quando o registro foi modificado
