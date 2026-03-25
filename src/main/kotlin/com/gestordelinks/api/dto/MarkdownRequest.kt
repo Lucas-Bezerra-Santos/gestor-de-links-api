@@ -13,5 +13,7 @@ data class MarkdownRequest(
     val description: String,
 
     @field:NotBlank(message = "Conteúdo é obrigatório")
-    val content: String
+    val content: String,
+
+    val categoryId: Long? = null
 )

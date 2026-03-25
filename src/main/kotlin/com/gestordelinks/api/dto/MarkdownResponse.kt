@@ -1,6 +1,7 @@
 package com.gestordelinks.api.dto
 
 // Importa a entidade Markdown para poder converter Entity → DTO
+import com.gestordelinks.api.model.Category
 import com.gestordelinks.api.model.Markdown
 // Tipo do Java para representar data e hora
 import java.time.LocalDateTime
@@ -19,6 +20,7 @@ import java.time.LocalDateTime
 //   }
 data class MarkdownResponse(
     val id: Long,
+    val category: CategoryResponse?,
     val name: String,
     val description: String,
     val content: String,
@@ -63,6 +65,7 @@ data class MarkdownResponse(
         // Em JS seria por posição: new MarkdownResponse(markdown.id, markdown.name, ...)
         fun from(markdown: Markdown) = MarkdownResponse(
             id = markdown.id,
+            category = markdown.category?.let { CategoryResponse.from(it) },
             name = markdown.name,
             description = markdown.description,
             content = markdown.content,
